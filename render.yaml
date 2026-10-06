@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: healthcare-api
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn your_project_name.wsgi:application"
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        value: services:
+  - type: web
+    name: tiberbu-backend
+    runtime: python
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --no-input && python manage.py migrate
+    startCommand: gunicorn tiberbu_appointmentscheduling.wsgi:application
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tiberbu-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: FRONTEND_URL
+        sync: false
+
+databases:
+  - name: tiberbu-db
+    plan: freeyour-secret-key
+      - key: DEBUG
+        value: False
