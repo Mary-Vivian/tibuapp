@@ -1,12 +1,5 @@
+
 services:
-  - type: web
-    name: healthcare-api
-    env: python
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "gunicorn your_project_name.wsgi:application"
-    envVars:
-      - key: DJANGO_SECRET_KEY
-        value: services:
   - type: web
     name: tiberbu-backend
     runtime: python
@@ -26,6 +19,4 @@ services:
 
 databases:
   - name: tiberbu-db
-    plan: freeyour-secret-key
-      - key: DEBUG
-        value: False
+    plan: free
