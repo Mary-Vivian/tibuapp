@@ -1,7 +1,7 @@
 from django.urls import path
 from .views import (
     register_patient, list_doctors, book_appointment, register_doctor,
-    simple_login, simple_logout, user_profile, csrf_token_view
+    simple_login, simple_logout, user_profile, csrf_token_view, my_appointments
 )
 
 urlpatterns = [
@@ -10,7 +10,8 @@ urlpatterns = [
     path('patients/register/', register_patient),
     path('doctors/', list_doctors),
     path('appointments/book/', book_appointment),
+    path('appointments/mine/', my_appointments),
     path('doctors/register/', register_doctor),
     path('profile/', user_profile),
-    path('csrf/', csrf_token_view, name='csrf_token'), 
+    path('csrf/', csrf_token_view, name='csrf_token'),
 ]

@@ -1,35 +1,35 @@
-from django.middleware.csrf import get_token
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
-from rest_framework import status
-from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, login, logout
-from .models import Doctor, Patient, Appointment
-from django.utils.dateparse import parse_datetime
-from datetime import datetime
-from django.views.decorators.csrf import csrf_exempt, csrf_protect
+from django.contrib.auth.models import User
+from django.db import transaction
 from django.http import JsonResponse
-import json
+from django.middleware.csrf import get_token
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
+from rest_framework.response import Response
+
+from .models import Appointment, Doctor, Patient
 
 
-@csrf_protect
+# ---------- Auth ----------
+
 @api_view(['GET'])
 def csrf_token_view(request):
-    token = get_token(request) 
-    return JsonResponse({'csrfToken': token})
+    return JsonResponse({'csrfToken': get_token(request)})
 
 
-@csrf_exempt
 @api_view(['POST'])
 def simple_login(request):
-    username = request.data.get('username')
-    password = request.data.get('password')
-    user = authenticate(request, username=username, password=password)
-    if user is not None:
-        login(request, user)
-        return Response({'message': 'Login successful'})
-    else:
+    user = authenticate(
+        request,
+        username=request.data.get('username'),
+        password=request.data.get('password'),
+    )
+    if user is None:
         return Response({'error': 'Invalid credentials'}, status=400)
+    login(request, user)
+    return Response({'message': 'Login successful'})
 
 
 @api_view(['POST'])
@@ -38,8 +38,28 @@ def simple_logout(request):
     return Response({'message': 'Logged out successfully'})
 
 
-# Register Patient View
-@csrf_exempt
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def user_profile(request):
+    user = request.user
+    patient = Patient.objects.filter(user=user).first()
+    doctor = Doctor.objects.filter(user=user).first()
+    role = (
+        "admin" if user.is_staff
+        else "doctor" if doctor
+        else "patient" if patient
+        else "user"
+    )
+    return Response({
+        "username": user.username,
+        "role": role,
+        "patient_id": patient.id if patient else None,
+        "doctor_id": doctor.id if doctor else None,
+    })
+
+
+# ---------- Registration ----------
+
 @api_view(['POST'])
 def register_patient(request):
     username = request.data.get("username")
@@ -49,82 +69,117 @@ def register_patient(request):
 
     if not all([username, password, phone, insurance_id]):
         return Response({"error": "Missing required fields"}, status=400)
-
     if User.objects.filter(username=username).exists():
         return Response({"error": "Username already exists"}, status=400)
 
-    user = User.objects.create_user(username=username, password=password)
-    patient = Patient.objects.create(user=user, phone=phone, insurance_id=insurance_id)
+    with transaction.atomic():
+        user = User.objects.create_user(username=username, password=password)
+        patient = Patient.objects.create(
+            user=user, phone=phone, insurance_id=insurance_id
+        )
 
-    return Response({"message": "Patient registered successfully", "id": patient.id}, status=201)
+    return Response(
+        {"message": "Patient registered successfully", "id": patient.id},
+        status=201,
+    )
 
 
-# List Doctors View
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def register_doctor(request):
+    username = request.data.get("username")
+    password = request.data.get("password")
+    specialization = request.data.get("specialization")
+
+    if not all([username, password, specialization]):
+        return Response({"error": "Missing required fields"}, status=400)
+    if User.objects.filter(username=username).exists():
+        return Response({"error": "Username already exists"}, status=400)
+
+    with transaction.atomic():  # no orphan user if the Doctor insert fails
+        user = User.objects.create_user(username=username, password=password)
+        doctor = Doctor.objects.create(user=user, specialization=specialization)
+
+    return Response(
+        {"message": "Doctor registered successfully", "id": doctor.id},
+        status=201,
+    )
+
+
+# ---------- Doctors ----------
+
 @api_view(['GET'])
 def list_doctors(request):
     doctors = Doctor.objects.all().values("id", "user__username", "specialization")
     return Response(list(doctors), status=200)
 
 
-# Book Appointment View
-@csrf_exempt
-@api_view(['POST'])
-def book_appointment(request):
-    patient_id = request.data.get("patient_id")
-    doctor_id = request.data.get("doctor_id")
-    appointment_date_str = request.data.get("appointment_date")
+# ---------- Appointments ----------
 
-    if not patient_id or not doctor_id or not appointment_date_str:
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def book_appointment(request):
+    # The patient comes from the logged-in user, never from the request
+    patient = Patient.objects.filter(user=request.user).first()
+    if not patient:
+        return Response({"error": "Only patients can book appointments"}, status=403)
+
+    doctor_id = request.data.get("doctor_id")
+    date_str = request.data.get("appointment_date")
+    if not doctor_id or not date_str:
         return Response({"error": "Missing required fields"}, status=400)
 
     try:
-        appointment_date = parse_datetime(appointment_date_str)
-        if not appointment_date:
-            raise ValueError("Invalid format")
-    except ValueError:
-        return Response({"error": "Invalid date format"}, status=400)
+        doctor_id = int(doctor_id)
+    except (TypeError, ValueError):
+        return Response({"error": "Invalid doctor"}, status=400)
 
-    if Appointment.objects.filter(doctor_id=doctor_id, appointment_date=appointment_date).exists():
+    try:
+        appointment_date = parse_datetime(str(date_str))
+    except ValueError:
+        appointment_date = None
+    if not appointment_date:
+        return Response({"error": "Invalid date format"}, status=400)
+    if timezone.is_naive(appointment_date):
+        appointment_date = timezone.make_aware(appointment_date)
+    if appointment_date < timezone.now():
+        return Response({"error": "Appointment must be in the future"}, status=400)
+
+    if not Doctor.objects.filter(id=doctor_id).exists():
+        return Response({"error": "Doctor not found"}, status=404)
+    if Appointment.objects.filter(
+        doctor_id=doctor_id, appointment_date=appointment_date
+    ).exists():
         return Response({"error": "Doctor is not available at this time"}, status=400)
 
     appointment = Appointment.objects.create(
-        patient_id=patient_id,
+        patient=patient,
         doctor_id=doctor_id,
         appointment_date=appointment_date,
-        status="Scheduled"
+        status="Scheduled",
     )
-
-    return Response({"message": "Appointment booked successfully", "id": appointment.id}, status=201)
-
-
-# Register Doctor View
-@csrf_exempt
-@api_view(['POST'])
-def register_doctor(request):
-    try:
-        data = json.loads(request.body.decode('utf-8'))
-    except json.JSONDecodeError as e:
-        return Response({"error": f"Invalid JSON: {str(e)}"}, status=400)
-
-    username = data.get("username")
-    password = data.get("password")
-    specialization = data.get("specialization")
-
-    if not username or not password or not specialization:
-        return Response({"error": "Missing required fields"}, status=400)
-
-    user = User.objects.create_user(username=username, password=password)
-    doctor = Doctor.objects.create(user=user, specialization=specialization)
-
-    return Response({"message": "Doctor registered successfully", "id": doctor.id}, status=201)
+    return Response(
+        {"message": "Appointment booked successfully", "id": appointment.id},
+        status=201,
+    )
 
 
 @api_view(['GET'])
-def user_profile(request):
-    if not request.user.is_authenticated:
-        return Response({"error": "Not authenticated"}, status=401)
+@permission_classes([IsAuthenticated])
+def my_appointments(request):
+    qs = Appointment.objects.all()
+    patient = Patient.objects.filter(user=request.user).first()
+    doctor = Doctor.objects.filter(user=request.user).first()
 
-    return Response({
-        "username": request.user.username,
-        "email": request.user.email,
-    })
+    if doctor:
+        qs = qs.filter(doctor=doctor)
+    elif patient:
+        qs = qs.filter(patient=patient)
+    elif not request.user.is_staff:
+        qs = qs.none()
+
+    data = qs.order_by("appointment_date").values(
+        "id", "appointment_date", "status",
+        "doctor__user__username", "patient__user__username",
+    )
+    return Response(list(data))
