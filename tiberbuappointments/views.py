@@ -149,7 +149,7 @@ def book_appointment(request):
         return Response({"error": "Doctor not found"}, status=404)
     if Appointment.objects.filter(
         doctor_id=doctor_id, appointment_date=appointment_date
-    ).exists():
+    ).exclude(status="Cancelled").exists():
         return Response({"error": "Doctor is not available at this time"}, status=400)
 
     appointment = Appointment.objects.create(
@@ -183,3 +183,28 @@ def my_appointments(request):
         "doctor__user__username", "patient__user__username",
     )
     return Response(list(data))
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def update_appointment_status(request, appointment_id):
+    new_status = request.data.get("status")
+    if new_status not in ("Cancelled", "Completed"):
+        return Response({"error": "Invalid status"}, status=400)
+
+    appt = Appointment.objects.select_related("patient", "doctor").filter(id=appointment_id).first()
+    if not appt:
+        return Response({"error": "Appointment not found"}, status=404)
+
+    user = request.user
+    is_patient = appt.patient.user_id == user.id
+    is_doctor = appt.doctor.user_id == user.id
+    allowed = (is_patient or is_doctor or user.is_staff) if new_status == "Cancelled" \
+        else (is_doctor or user.is_staff)
+    if not allowed:
+        return Response({"error": "Not allowed"}, status=403)
+    if appt.status != "Scheduled":
+        return Response({"error": f"Appointment is already {appt.status.lower()}"}, status=400)
+
+    appt.status = new_status
+    appt.save()
+    return Response({"message": f"Appointment {new_status.lower()}"})

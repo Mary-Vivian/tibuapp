@@ -1,7 +1,7 @@
 from django.urls import path
 from .views import (
     register_patient, list_doctors, book_appointment, register_doctor,
-    simple_login, simple_logout, user_profile, csrf_token_view, my_appointments
+    simple_login, simple_logout, user_profile, csrf_token_view, my_appointments, update_appointment_status
 )
 
 urlpatterns = [
@@ -14,4 +14,5 @@ urlpatterns = [
     path('doctors/register/', register_doctor),
     path('profile/', user_profile),
     path('csrf/', csrf_token_view, name='csrf_token'),
+    path('appointments/<int:appointment_id>/status/', update_appointment_status),
 ]

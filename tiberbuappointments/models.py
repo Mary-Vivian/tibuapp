@@ -16,7 +16,16 @@ class Appointment(models.Model):
     patient = models.ForeignKey(Patient, on_delete=models.CASCADE)
     doctor = models.ForeignKey(Doctor, on_delete=models.CASCADE)
     appointment_date = models.DateTimeField()
-    status = models.CharField(max_length=20, choices=[("Scheduled", "Scheduled"), ("Completed", "Completed"), ("Cancelled", "Cancelled")])
+    status = models.CharField(
+        max_length=20,
+        choices=[("Scheduled", "Scheduled"), ("Completed", "Completed"), ("Cancelled", "Cancelled")],
+    )
 
     class Meta:
-        unique_together = ('doctor', 'appointment_date')  # Prevent double bookings of patients to one doctor at the same time
+        constraints = [
+            models.UniqueConstraint(
+                fields=["doctor", "appointment_date"],
+                condition=~models.Q(status="Cancelled"),
+                name="unique_active_slot",
+            )
+        ]
