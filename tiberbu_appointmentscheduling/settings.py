@@ -21,6 +21,10 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-local-dev-key')
 # Render sets RENDER automatically, so DEBUG is only True on your computer
 DEBUG = 'RENDER' not in os.environ
 
+PASSWORD_RESET_TIMEOUT = 60 * 60  # reset links expire after 1 hour
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+EMAIL_FROM = os.environ.get("EMAIL_FROM", "")
+
 ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 RENDER_HOST = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
 if RENDER_HOST:
@@ -67,6 +71,10 @@ REST_FRAMEWORK = {
 
 
     ),
+        'DEFAULT_THROTTLE_RATES': {
+        'password_reset': '5/hour',
+        'auth': '30/hour',
+    },
 }
 
 
