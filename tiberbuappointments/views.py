@@ -79,6 +79,8 @@ def user_profile(request):
         "role": role,
         "patient_id": patient.id if patient else None,
         "doctor_id": doctor.id if doctor else None,
+        "specialization": doctor.specialization if doctor else None,
+
     })
 
 
@@ -213,6 +215,8 @@ def my_appointments(request):
     data = qs.order_by("appointment_date").values(
         "id", "appointment_date", "status",
         "doctor__user__username", "patient__user__username",
+        "patient__phone",
+
     )
     return Response(list(data))
 
