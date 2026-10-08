@@ -51,6 +51,8 @@ def simple_login(request):
     if user is None:
         return Response({'error': 'Invalid credentials'}, status=400)
     login(request, user)
+    if not request.data.get("remember"):
+        request.session.set_expiry(0)  # session cookie: ends when the browser closes
     return Response({'message': 'Login successful'})
 
 
