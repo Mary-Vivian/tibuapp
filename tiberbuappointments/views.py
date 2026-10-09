@@ -216,6 +216,7 @@ def my_appointments(request):
         "id", "appointment_date", "status",
         "doctor__user__username", "patient__user__username",
         "patient__phone",
+        "room_id",
 
     )
     return Response(list(data))
